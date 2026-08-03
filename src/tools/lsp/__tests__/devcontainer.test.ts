@@ -363,4 +363,41 @@ describe('devcontainer LSP helpers', () => {
     const mod = await import('../devcontainer.js');
     expect(mod.resolveDevContainerContext(workspaceRoot)).toBeNull();
   });
+
+  it('probes a command inside the container via docker exec and reports success', async () => {
+    mockSpawnSync.mockImplementation((command: string, args: ReadonlyArray<string> | undefined) => {
+      expect(command).toBe('docker');
+      expect(args).toEqual(['exec', 'abc123', 'sh', '-c', 'command -v ty']);
+      return { status: 0, stdout: '/usr/local/bin/ty\n' } as ReturnType<typeof spawnSync>;
+    });
+
+    const mod = await import('../devcontainer.js');
+    const context = { containerId: 'abc123', hostWorkspaceRoot: workspaceRoot, containerWorkspaceRoot: DEFAULT_WORKSPACE_FOLDER };
+
+    expect(mod.commandExistsInContainer(context, 'ty')).toBe(true);
+  });
+
+  it('reports a missing container command when docker exec exits non-zero', async () => {
+    mockSpawnSync.mockImplementation((command: string, args: ReadonlyArray<string> | undefined) => {
+      expect(command).toBe('docker');
+      expect(args).toEqual(['exec', 'abc123', 'sh', '-c', 'command -v basedpyright-langserver']);
+      return { status: 127, stdout: '' } as ReturnType<typeof spawnSync>;
+    });
+
+    const mod = await import('../devcontainer.js');
+    const context = { containerId: 'abc123', hostWorkspaceRoot: workspaceRoot, containerWorkspaceRoot: DEFAULT_WORKSPACE_FOLDER };
+
+    expect(mod.commandExistsInContainer(context, 'basedpyright-langserver')).toBe(false);
+  });
+
+  it('reports a missing container command when docker itself cannot run', async () => {
+    mockSpawnSync.mockImplementation(() => {
+      return { error: new Error('spawn docker ENOENT'), status: null } as unknown as ReturnType<typeof spawnSync>;
+    });
+
+    const mod = await import('../devcontainer.js');
+    const context = { containerId: 'abc123', hostWorkspaceRoot: workspaceRoot, containerWorkspaceRoot: DEFAULT_WORKSPACE_FOLDER };
+
+    expect(mod.commandExistsInContainer(context, 'ty')).toBe(false);
+  });
 });
